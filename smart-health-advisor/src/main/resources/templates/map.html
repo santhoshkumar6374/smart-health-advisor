@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Nearby Hospitals</title>
+
+    <!-- Mobile Viewport -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Bootstrap CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+    <!-- Leaflet Routing Machine CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css"/>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f4f7fb;
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            height: 60vh;
+            width: 100%;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .page-title {
+            text-align: center;
+            margin-top: 60px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #0d6efd;
+        }
+
+        .hospital-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .hospital-item {
+            line-height: 1.4;
+        }
+
+        .hospital-item:hover {
+            background: #e9f3ff;
+            cursor: pointer;
+        }
+
+        .back-btn {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            z-index: 1000;
+            background: linear-gradient(135deg, #0d6efd, #084298);
+            color: white;
+            padding: 10px 18px;
+            border-radius: 30px;
+            text-decoration: none;
+            font-weight: 600;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.25);
+            transition: all 0.3s ease;
+        }
+
+        .back-btn i {
+            margin-right: 6px;
+        }
+
+        .back-btn:hover {
+            transform: translateY(-2px);
+            color: #fff;
+        }
+
+        @media (max-width: 768px) {
+            .page-title {
+                font-size: 1.4rem;
+                margin-top: 55px;
+            }
+
+            .back-btn {
+                padding: 8px 14px;
+                font-size: 0.9rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Back Button -->
+<a href="/dashboard" class="back-btn">
+    <i class="fa-solid fa-arrow-left"></i> Dashboard
+</a>
+
+<div class="container mt-4">
+    <h2 class="page-title">
+        <i class="fa-solid fa-hospital"></i> Nearby Hospitals
+    </h2>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Hospital List -->
+    <ul id="hospital-list" class="list-group hospital-list"></ul>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Leaflet Routing Machine JS -->
+<script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+
+<!-- Axios -->
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+
+<script>
+    // Initialize Map
+    var map = L.map('map').setView([20.5937, 78.9629], 5); // Default to India
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    let routingControl = null;
+
+    function showRoute(userLat, userLng, destLat, destLng) {
+        if (routingControl) map.removeControl(routingControl);
+
+        routingControl = L.Routing.control({
+            waypoints: [
+                L.latLng(userLat, userLng),
+                L.latLng(destLat, destLng)
+            ],
+            draggableWaypoints: false,
+            addWaypoints: false
+        }).addTo(map);
+    }
+
+    function fetchHospitals(userLat, userLng) {
+        axios.get(`/hospital/nearest?lat=${userLat}&lng=${userLng}&limit=5`)
+            .then(response => {
+                const hospitals = response.data;
+                const list = document.getElementById("hospital-list");
+                list.innerHTML = ''; // Clear previous list
+
+                if (!hospitals || hospitals.length === 0) {
+                    alert("No nearby hospitals found.");
+                    return;
+                }
+
+                // Show route to first hospital by default
+                showRoute(userLat, userLng, hospitals[0].latitude, hospitals[0].longitude);
+
+                hospitals.forEach(hospital => {
+                    // Add marker
+                    const marker = L.marker([hospital.latitude, hospital.longitude]).addTo(map)
+                        .bindPopup(`<b>${hospital.name}</b><br>${hospital.address}<br>📞 ${hospital.phone}`);
+
+                    // Add to list
+                    const li = document.createElement("li");
+                    li.className = "list-group-item hospital-item";
+                    li.innerHTML = `<b>${hospital.name}</b><br>${hospital.address}<br>📞 ${hospital.phone}`;
+
+                    li.addEventListener("click", () => {
+                        showRoute(userLat, userLng, hospital.latitude, hospital.longitude);
+                        map.setView([hospital.latitude, hospital.longitude], 14);
+                        marker.openPopup();
+                    });
+
+                    list.appendChild(li);
+                });
+            })
+            .catch(err => console.error("Error fetching hospitals:", err));
+    }
+
+    // Fetch user location
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            pos => {
+                const userLat = pos.coords.latitude;
+                const userLng = pos.coords.longitude;
+                console.log("User location:", userLat, userLng);
+
+                // Add marker for user
+                L.marker([userLat, userLng]).addTo(map)
+                    .bindPopup("📍 You are here").openPopup();
+
+                map.setView([userLat, userLng], 13);
+                fetchHospitals(userLat, userLng);
+            },
+            err => {
+                console.error("Geolocation error:", err);
+                alert("Unable to fetch location. Please enable location services.");
+            }
+        );
+    } else {
+        alert("Geolocation is not supported by your browser.");
+    }
+</script>
+
+</body>
+</html>
